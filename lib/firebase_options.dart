@@ -18,23 +18,24 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBzEBhfUA5ZSPoNd2dYJP7AqBTbgSGYfDw',
-    appId: '1:367212598540:web:c0a2351bf6cb3d293ee529',
-    messagingSenderId: '367212598540',
-    projectId: 'antreyuk-7738f',
-    authDomain: 'antreyuk-7738f.firebaseapp.com',
-    storageBucket: 'antreyuk-7738f.firebasestorage.app',
+    apiKey: 'AIzaSyBVjFU_i0sGAZrVnlXNcFUOa16TnwJlliw',
+    appId: '1:702321637397:web:929e8781b274842ed3761c',
+    messagingSenderId: '702321637397',
+    projectId: 'antreyuk-54847',
+    authDomain: 'antreyuk-54847.firebaseapp.com',
+    storageBucket: 'antreyuk-54847.firebasestorage.app',
     databaseURL:
-        'https://antreyuk-7738f-default-rtdb.asia-southeast1.firebasedatabase.app',
+        'https://antreyuk-54847-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    measurementId: 'G-FPZK6PRPHL',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBzEBhfUA5ZSPoNd2dYJP7AqBTbgSGYfDw',
-    appId: '1:367212598540:android:c80baeafdc58b3e23ee529',
-    messagingSenderId: '367212598540',
-    projectId: 'antreyuk-7738f',
-    storageBucket: 'antreyuk-7738f.firebasestorage.app',
+    apiKey: 'AIzaSyBVjFU_i0sGAZrVnlXNcFUOa16TnwJlliw',
+    appId: '1:702321637397:android:dee89d12a43006b9d3761c',
+    messagingSenderId: '702321637397',
+    projectId: 'antreyuk-54847',
+    storageBucket: 'antreyuk-54847.firebasestorage.app',
     databaseURL:
-        'https://antreyuk-7738f-default-rtdb.asia-southeast1.firebasedatabase.app',
+        'https://antreyuk-54847-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 }

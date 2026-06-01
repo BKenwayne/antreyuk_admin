@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:antreyuk_admin/seeder.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -16,284 +17,411 @@ class _LoginPageState extends State<LoginPage> {
   final Color primaryColor = const Color(0xFF003366);
   final Color backgroundColor = const Color(0xFF001E40);
 
+  final TextEditingController _nipController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _nipController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    final String nip = _nipController.text.trim();
+    final String password = _passwordController.text;
+
+    if (nip.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('NIP dan Kata Sandi harus diisi!'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final QuerySnapshot query = await FirebaseFirestore.instance
+          .collection('admins')
+          .where('nip', isEqualTo: nip)
+          .limit(1)
+          .get();
+
+      if (!mounted) return;
+      Navigator.pop(context);
+
+      if (query.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Akun dengan NIP tersebut tidak ditemukan!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final Map<String, dynamic> adminData =
+          query.docs.first.data() as Map<String, dynamic>;
+      final String dbPassword = adminData['password'] ?? '';
+
+      if (dbPassword == password) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Selamat datang, ${adminData['name']}!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Kata sandi salah!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Terjadi kesalahan: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _testFirestoreConnection() async {
+    try {
+      final ref = FirebaseFirestore.instance.collection("connection_test");
+      await ref.doc("test_admin").set({
+        "hello": "from admin",
+        "timestamp": FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Firestore Connection Successful!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Firestore Connection Failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _seedTesterData() async {
+    try {
+      await DatabaseSeeder.seedAdminData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Admin Tester Data Seeded Successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Seeding Failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Background with pattern
-          Positioned.fill(
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFF001E40),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textTheme: GoogleFonts.montserratTextTheme(Theme.of(context).textTheme),
+      ),
+      child: Scaffold(
+        body: Stack(
+          children: [
+            // Background with pattern
+            Positioned.fill(
+              child: Container(
+                decoration: const BoxDecoration(color: Color(0xFF001E40)),
               ),
             ),
-          ),
-          // Main Content
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Logo & Brand
-                  Image.asset(
-                    'assets/logo.png',
-                    width: 80,
-                    height: 80,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'AntreYuk',
-                    style: GoogleFonts.outfit(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 1.2,
+            // Main Content
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Logo & Brand
+                    Image.asset('assets/logo.png', width: 80, height: 80),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Antre Yuk',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 1.2,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'SISTEM MANAJEMEN PUSKESMAS DIGITAL',
-                    style: GoogleFonts.outfit(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white70,
-                      letterSpacing: 2.0,
+                    Text(
+                      'SISTEM MANAJEMEN PUSKESMAS DIGITAL',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white70,
+                        letterSpacing: 2.0,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 40),
-                  // Login Card
-                  Container(
-                    width: double.infinity,
-                    constraints: const BoxConstraints(maxWidth: 450),
-                    padding: const EdgeInsets.all(32.0),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Login Staff Kesehatan',
-                          style: GoogleFonts.outfit(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
+                    const SizedBox(height: 40),
+                    // Login Card
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxWidth: 450),
+                      padding: const EdgeInsets.all(32.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0x33000000),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Silakan masuk untuk mengakses panel administrasi.',
-                          style: GoogleFonts.outfit(
-                            fontSize: 14,
-                            color: Colors.black54,
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                        // Username Field
-                        const Text(
-                          'Username / NIP',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          decoration: InputDecoration(
-                            hintText: 'Masukkan NIP Anda',
-                            prefixIcon: const Icon(Icons.domain_outlined, size: 20),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFC),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: primaryColor, width: 2),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Login Staff Kesehatan',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                        // Password Field
-                        const Text(
-                          'Kata Sandi',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: Colors.black87,
+                          const SizedBox(height: 8),
+                          Text(
+                            'Silakan masuk untuk mengakses panel administrasi.',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 14,
+                              color: Colors.black54,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          obscureText: _obscurePassword,
-                          decoration: InputDecoration(
-                            hintText: 'Masukkan kata sandi',
-                            prefixIcon: const Icon(Icons.lock_outline, size: 20),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                                size: 20,
+                          const SizedBox(height: 32),
+                          // Username Field
+                          const Text(
+                            'Username / NIP',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _nipController,
+                            style: const TextStyle(fontSize: 14),
+                            decoration: InputDecoration(
+                              hintText: 'Masukkan NIP Anda',
+                              hintStyle: const TextStyle(fontSize: 14),
+                              prefixIcon: const Icon(
+                                Icons.domain_outlined,
+                                size: 18,
                               ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFC),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: primaryColor, width: 2),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () {},
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: Text(
-                              'Lupa Sandi?',
-                              style: TextStyle(
-                                color: primaryColor,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // Remember Me
-                        Row(
-                          children: [
-                            SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: Checkbox(
-                                value: _rememberMe,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _rememberMe = value ?? false;
-                                  });
-                                },
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Ingat saya di perangkat ini',
-                              style: TextStyle(fontSize: 13, color: Colors.black54),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 32),
-                        // Login Button
-                        SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: ElevatedButton(
-                            onPressed: () {},
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryColor,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
                               ),
-                              elevation: 0,
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: primaryColor,
+                                  width: 2,
+                                ),
+                              ),
                             ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  'Masuk',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
+                          ),
+                          const SizedBox(height: 24),
+                          // Password Field
+                          const Text(
+                            'Kata Sandi',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            obscuringCharacter: '•',
+                            style: const TextStyle(fontSize: 14),
+                            decoration: InputDecoration(
+                              hintText: 'Masukkan kata sandi',
+                              hintStyle: const TextStyle(fontSize: 14),
+                              prefixIcon: const Icon(
+                                Icons.lock_outline,
+                                size: 18,
+                              ),
+                              suffixIcon: Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_outlined
+                                        : Icons.visibility_off_outlined,
+                                    size: 20,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                  },
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: primaryColor,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Remember Me
+                          Row(
+                            children: [
+                              SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: Checkbox(
+                                  value: _rememberMe,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _rememberMe = value ?? false;
+                                    });
+                                  },
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
                                 ),
-                                SizedBox(width: 8),
-                                Icon(Icons.arrow_forward, size: 18),
-                              ],
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Ingat saya di perangkat ini',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 32),
+                          // Login Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 54,
+                            child: ElevatedButton(
+                              onPressed: _login,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryColor,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    'Masuk',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Icon(Icons.arrow_forward, size: 18),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        // Test Firebase Button
-                        Center(
-                          child: TextButton.icon(
-                            onPressed: () async {
-                              try {
-                                final ref = FirebaseDatabase.instance.ref();
-                                await ref.child("test_admin").set({
-                                  "hello": "from admin",
-                                  "timestamp": ServerValue.timestamp,
-                                });
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Firebase Connection Successful!'),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Firebase Connection Failed: $e'),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.sync, size: 16),
-                            label: const Text(
-                              'Test Firebase Connection',
-                              style: TextStyle(fontSize: 12),
+                          const SizedBox(height: 16),
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _testFirestoreConnection,
+                              icon: const Icon(Icons.sync, size: 16),
+                              label: const Text(
+                                'Test Firestore Connection',
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          // Seed Tester Data Button
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _seedTesterData,
+                              icon: const Icon(Icons.storage, size: 16),
+                              label: const Text(
+                                'Seed Tester Data',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
-
