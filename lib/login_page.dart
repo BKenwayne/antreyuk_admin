@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:antreyuk_admin/seeder.dart';
+import 'package:antreyuk_admin/screens/dashboard_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -72,10 +73,14 @@ class _LoginPageState extends State<LoginPage> {
       final String dbPassword = adminData['password'] ?? '';
 
       if (dbPassword == password) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Selamat datang, ${adminData['name']}!'),
-            backgroundColor: Colors.green,
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DashboardPage(
+              adminName: adminData['name'] ?? 'Admin',
+              adminRole: adminData['role'] ?? 'Staff',
+            ),
           ),
         );
       } else {
@@ -130,6 +135,28 @@ class _LoginPageState extends State<LoginPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Admin Tester Data Seeded Successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Seeding Failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _seedQueueData() async {
+    try {
+      await DatabaseSeeder.seedQueueData();
+      await DatabaseSeeder.seedDoctorAndAppointmentData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Queue & Doctor Schedule Data Seeded Successfully!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -408,6 +435,16 @@ class _LoginPageState extends State<LoginPage> {
                               icon: const Icon(Icons.storage, size: 16),
                               label: const Text(
                                 'Seed Tester Data',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ),
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _seedQueueData,
+                              icon: const Icon(Icons.queue, size: 16),
+                              label: const Text(
+                                'Seed Queue Data',
                                 style: TextStyle(fontSize: 12),
                               ),
                             ),
