@@ -4,11 +4,17 @@ import 'package:google_fonts/google_fonts.dart';
 class TopBarWidget extends StatelessWidget {
   final String doctorName;
   final String poliName;
+  final bool showSearchBar;
+  final ValueChanged<String>? onSearchChanged;
+  final String? searchHint;
 
   const TopBarWidget({
     super.key,
     required this.doctorName,
     required this.poliName,
+    this.showSearchBar = true,
+    this.onSearchChanged,
+    this.searchHint,
   });
 
   @override
@@ -28,36 +34,40 @@ class TopBarWidget extends StatelessWidget {
       child: Row(
         children: [
           // Search Bar
-          Expanded(
-            child: Container(
-              height: 40,
-              constraints: const BoxConstraints(maxWidth: 400),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: TextField(
-                style: GoogleFonts.montserrat(fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: 'Cari nama pasien atau ID...',
-                  hintStyle: GoogleFonts.montserrat(
-                    fontSize: 13,
-                    color: Colors.grey.shade400,
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search_rounded,
-                    size: 20,
-                    color: Colors.grey.shade400,
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 12,
+          if (showSearchBar)
+            Expanded(
+              child: Container(
+                height: 40,
+                constraints: const BoxConstraints(maxWidth: 400),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: TextField(
+                  onChanged: onSearchChanged,
+                  style: GoogleFonts.montserrat(fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: searchHint ?? 'Cari nama pasien atau ID...',
+                    hintStyle: GoogleFonts.montserrat(
+                      fontSize: 13,
+                      color: Colors.grey.shade400,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      size: 20,
+                      color: Colors.grey.shade400,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            )
+          else
+            const Spacer(),
           const SizedBox(width: 24),
           // Divider
           Container(

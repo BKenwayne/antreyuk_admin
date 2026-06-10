@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:antreyuk_admin/seeder.dart';
 import 'package:antreyuk_admin/screens/dashboard_page.dart';
+import 'package:antreyuk_admin/utils/fade_route.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,7 +13,6 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
-  bool _rememberMe = false;
 
   final Color primaryColor = const Color(0xFF003366);
   final Color backgroundColor = const Color(0xFF001E40);
@@ -76,8 +75,8 @@ class _LoginPageState extends State<LoginPage> {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (context) => DashboardPage(
+          FadeRoute(
+            page: DashboardPage(
               adminName: adminData['name'] ?? 'Admin',
               adminRole: adminData['role'] ?? 'Staff',
             ),
@@ -97,74 +96,6 @@ class _LoginPageState extends State<LoginPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Terjadi kesalahan: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _testFirestoreConnection() async {
-    try {
-      final ref = FirebaseFirestore.instance.collection("connection_test");
-      await ref.doc("test_admin").set({
-        "hello": "from admin",
-        "timestamp": FieldValue.serverTimestamp(),
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Firestore Connection Successful!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Firestore Connection Failed: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _seedTesterData() async {
-    try {
-      await DatabaseSeeder.seedAdminData();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Admin Tester Data Seeded Successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Seeding Failed: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _seedQueueData() async {
-    try {
-      await DatabaseSeeder.seedQueueData();
-      await DatabaseSeeder.seedDoctorAndAppointmentData();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Queue & Doctor Schedule Data Seeded Successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Seeding Failed: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -356,40 +287,11 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          // Remember Me
-                          Row(
-                            children: [
-                              SizedBox(
-                                height: 24,
-                                width: 24,
-                                child: Checkbox(
-                                  value: _rememberMe,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _rememberMe = value ?? false;
-                                    });
-                                  },
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Ingat saya di perangkat ini',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 32),
+                          const SizedBox(height: 30),
                           // Login Button
                           SizedBox(
                             width: double.infinity,
-                            height: 54,
+                            height: 50,
                             child: ElevatedButton(
                               onPressed: _login,
                               style: ElevatedButton.styleFrom(
@@ -407,45 +309,12 @@ class _LoginPageState extends State<LoginPage> {
                                     'Masuk',
                                     style: TextStyle(
                                       fontSize: 16,
-                                      fontWeight: FontWeight.bold,
+                                      fontWeight: FontWeight.w400,
                                     ),
                                   ),
                                   SizedBox(width: 8),
                                   Icon(Icons.arrow_forward, size: 18),
                                 ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Center(
-                            child: TextButton.icon(
-                              onPressed: _testFirestoreConnection,
-                              icon: const Icon(Icons.sync, size: 16),
-                              label: const Text(
-                                'Test Firestore Connection',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          // Seed Tester Data Button
-                          Center(
-                            child: TextButton.icon(
-                              onPressed: _seedTesterData,
-                              icon: const Icon(Icons.storage, size: 16),
-                              label: const Text(
-                                'Seed Tester Data',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ),
-                          Center(
-                            child: TextButton.icon(
-                              onPressed: _seedQueueData,
-                              icon: const Icon(Icons.queue, size: 16),
-                              label: const Text(
-                                'Seed Queue Data',
-                                style: TextStyle(fontSize: 12),
                               ),
                             ),
                           ),

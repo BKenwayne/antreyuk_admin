@@ -27,17 +27,13 @@ class SidebarWidget extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
             child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E90FF),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.local_hospital_rounded,
-                    color: Colors.white,
-                    size: 22,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    width: 40,
+                    height: 40,
+                    fit: BoxFit.contain,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -77,6 +73,11 @@ class SidebarWidget extends StatelessWidget {
             icon: Icons.calendar_month_rounded,
             label: 'Jadwal Dokter',
             index: 1,
+          ),
+          _buildMenuItem(
+            icon: Icons.assignment_rounded,
+            label: 'Riwayat Kesehatan',
+            index: 2,
           ),
           const Spacer(),
           // Logout Button

@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:antreyuk_admin/models/doctor_model.dart';
 import 'package:antreyuk_admin/models/appointment_model.dart';
 import 'package:antreyuk_admin/widgets/sidebar_widget.dart';
 import 'package:antreyuk_admin/widgets/top_bar_widget.dart';
 import 'package:antreyuk_admin/screens/dashboard_page.dart';
+import 'package:antreyuk_admin/screens/riwayat_kesehatan_page.dart';
 import 'package:antreyuk_admin/login_page.dart';
+import 'package:antreyuk_admin/utils/fade_route.dart';
 
 class JadwalDokterPage extends StatefulWidget {
   final String adminName;
@@ -28,12 +31,50 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
 
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   
+  // Cache and resolver for patient names
+  final Map<String, String> _patientNameCache = {};
+
+  void _resolvePatientName(String userId) {
+    if (userId.isEmpty || _patientNameCache.containsKey(userId)) return;
+    
+    // Use first 5 characters of UID as placeholder while loading
+    final placeholder = userId.length > 5 ? userId.substring(0, 5) : userId;
+    _patientNameCache[userId] = 'Loading ($placeholder)...';
+    
+    FirebaseFirestore.instance.collection('users').doc(userId).get().then((doc) {
+      String resolvedName = 'User ($placeholder)';
+      if (doc.exists) {
+        final data = doc.data();
+        if (data != null) {
+          resolvedName = (data['name'] ?? data['nama'] ?? data['displayName'] ?? data['namaLengkap'] ?? resolvedName).toString();
+        }
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _patientNameCache[userId] = resolvedName;
+          });
+        }
+      });
+    }).catchError((e) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _patientNameCache[userId] = 'Error ($placeholder)';
+          });
+        }
+      });
+    });
+  }
+  
   // State for selected date in calendar
   late DateTime _selectedDate;
   late DateTime _startOfWeek;
   
   // Filter for weekly vs monthly view (for UI toggles)
   String _calendarViewMode = 'Minggu'; // 'Minggu' or 'Bulan'
+  bool _showAllSchedules = false;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -53,6 +94,7 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
     setState(() {
       _selectedDate = _selectedDate.add(Duration(days: days));
       _calculateWeekRange();
+      _showAllSchedules = false;
     });
   }
 
@@ -72,8 +114,18 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                 if (index == 0) {
                   Navigator.pushReplacement(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => DashboardPage(
+                    FadeRoute(
+                      page: DashboardPage(
+                        adminName: widget.adminName,
+                        adminRole: widget.adminRole,
+                      ),
+                    ),
+                  );
+                } else if (index == 2) {
+                  Navigator.pushReplacement(
+                    context,
+                    FadeRoute(
+                      page: RiwayatKesehatanPage(
                         adminName: widget.adminName,
                         adminRole: widget.adminRole,
                       ),
@@ -84,7 +136,7 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
               onLogout: () {
                 Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                  FadeRoute(page: const LoginPage()),
                   (route) => false,
                 );
               },
@@ -96,21 +148,27 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                   TopBarWidget(
                     doctorName: widget.adminName,
                     poliName: widget.adminRole,
+                    searchHint: 'Cari dokter, poli, pasien, atau ID...',
+                    onSearchChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
                   ),
                   Expanded(
                     child: Container(
                       color: const Color(0xFFF8FAFC),
                       child: StreamBuilder<DatabaseEvent>(
-                        stream: _dbRef.onValue,
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
+                        stream: _dbRef.child('dokter').onValue,
+                        builder: (context, doctorSnapshot) {
+                          if (doctorSnapshot.connectionState == ConnectionState.waiting) {
                             return const Center(child: CircularProgressIndicator());
                           }
 
-                          if (snapshot.hasError) {
+                          if (doctorSnapshot.hasError) {
                             return Center(
                               child: Text(
-                                'Error: ${snapshot.error}',
+                                'Error: ${doctorSnapshot.error}',
                                 style: GoogleFonts.montserrat(),
                               ),
                             );
@@ -118,38 +176,92 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
 
                           // Parsing Doctors
                           List<Doctor> doctors = [];
-                          final dataVal = snapshot.data?.snapshot.value as Map?;
-                          if (dataVal != null && dataVal['dokter'] is Map) {
-                            final dokterMap = dataVal['dokter'] as Map;
-                            dokterMap.forEach((key, val) {
+                          final dokterData = doctorSnapshot.data?.snapshot.value;
+                          if (dokterData is Map) {
+                            dokterData.forEach((key, val) {
                               if (val is Map) {
                                 doctors.add(Doctor.fromRealtime(key.toString(), val));
                               }
                             });
                           }
 
-                          // Parsing Appointments
-                          List<Appointment> appointments = [];
-                          if (dataVal != null && dataVal['antrean_janjitemu'] is Map) {
-                            final aptMap = dataVal['antrean_janjitemu'] as Map;
-                            aptMap.forEach((key, val) {
-                              if (val is Map) {
-                                appointments.add(Appointment.fromRealtime(key.toString(), val));
+                          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: FirebaseFirestore.instance.collection('appointments').snapshots(),
+                            builder: (context, appointmentSnapshot) {
+                              if (appointmentSnapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(child: CircularProgressIndicator());
                               }
-                            });
-                          }
 
-                          // Filter appointments for the selected date
-                          final filteredAppointments = appointments.where((apt) {
-                            return apt.tanggal.year == _selectedDate.year &&
-                                apt.tanggal.month == _selectedDate.month &&
-                                apt.tanggal.day == _selectedDate.day;
-                          }).toList();
-                          
-                          // Sort by waktu ascending
-                          filteredAppointments.sort((a, b) => a.waktu.compareTo(b.waktu));
+                              if (appointmentSnapshot.hasError) {
+                                return Center(
+                                  child: Text(
+                                    'Error: ${appointmentSnapshot.error}',
+                                    style: GoogleFonts.montserrat(),
+                                  ),
+                                );
+                              }
 
-                          return _buildMainLayout(doctors, filteredAppointments);
+
+
+                              // Parsing Appointments
+                              List<Appointment> appointments = [];
+                              final docs = appointmentSnapshot.data?.docs ?? [];
+                              debugPrint('=== FIRESTORE DEBUG ===');
+                              debugPrint('Total documents in "appointements": ${docs.length}');
+                              if (docs.isNotEmpty) {
+                                debugPrint('First doc ID: ${docs.first.id}');
+                                debugPrint('First doc data: ${docs.first.data()}');
+                              }
+                              for (var doc in docs) {
+                                final data = doc.data();
+                                final apt = Appointment.fromFirestore(doc.id, data);
+                                
+                                // Resolve patient name if userId is available
+                                if (apt.userId.isNotEmpty) {
+                                  _resolvePatientName(apt.userId);
+                                }
+                                
+                                appointments.add(apt);
+                              }
+
+                              // Filter appointments for the selected date
+                              final filteredAppointments = appointments.where((apt) {
+                                return apt.tanggal.year == _selectedDate.year &&
+                                    apt.tanggal.month == _selectedDate.month &&
+                                    apt.tanggal.day == _selectedDate.day;
+                              }).toList();
+                              
+                              debugPrint('Filtered appointments for $_selectedDate: ${filteredAppointments.length}');
+                              
+                              // Sort by waktu ascending
+                              filteredAppointments.sort((a, b) => a.waktu.compareTo(b.waktu));
+
+                              List<Doctor> searchedDoctors = doctors;
+                              List<Appointment> searchedAppointments = filteredAppointments;
+
+                              if (_searchQuery.isNotEmpty) {
+                                final query = _searchQuery.toLowerCase();
+                                searchedDoctors = doctors.where((doc) {
+                                  return doc.name.toLowerCase().contains(query) ||
+                                      doc.poli.toLowerCase().contains(query) ||
+                                      doc.id.toLowerCase().contains(query);
+                                }).toList();
+
+                                searchedAppointments = filteredAppointments.where((apt) {
+                                  final patientName = apt.userId.isNotEmpty
+                                      ? (_patientNameCache[apt.userId] ?? 'Loading...').toLowerCase()
+                                      : apt.namaPasien.toLowerCase();
+                                  return patientName.contains(query) ||
+                                      apt.userId.toLowerCase().contains(query) ||
+                                      apt.nikOrKeluhan.toLowerCase().contains(query) ||
+                                      apt.poli.toLowerCase().contains(query) ||
+                                      apt.doctorName.toLowerCase().contains(query);
+                                }).toList();
+                              }
+
+                              return _buildMainLayout(searchedDoctors, searchedAppointments);
+                            },
+                          );
                         },
                       ),
                     ),
@@ -166,7 +278,9 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
   Widget _buildMainLayout(List<Doctor> doctors, List<Appointment> selectedDayAppointments) {
     // Hitung statistics dari seluruh appointment hari ini
     final selesaiHariIni = selectedDayAppointments.where((a) => a.status == 'selesai').length;
-    final sisaAntrean = selectedDayAppointments.where((a) => a.status == 'menunggu').length;
+    final sisaAntrean = selectedDayAppointments.where((a) => 
+        a.status.toLowerCase() == 'menunggu' || 
+        a.status.toLowerCase() == 'menunggu konfirmasi').length;
     final pembatalan = selectedDayAppointments.where((a) => a.status == 'dibatalkan').length;
     
     return SingleChildScrollView(
@@ -178,27 +292,30 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Manajemen Jadwal',
-                    style: GoogleFonts.montserrat(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1E293B),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Manajemen Jadwal',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1E293B),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Atur ketersediaan staf medis dan pantau antrean janji temu real-time.',
-                    style: GoogleFonts.montserrat(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
+                    const SizedBox(height: 4),
+                    Text(
+                      'Atur ketersediaan staf medis dan pantau antrean janji temu real-time.',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 14,
+                        color: Colors.grey.shade500,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 16),
               Row(
                 children: [
                   // Button Tambah Janji Temu (Super Admin Only Enabled)
@@ -379,32 +496,10 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                         ),
                       ],
                     );
-                  },
-                ),
-          const SizedBox(height: 20),
-          // Lihat Semua Dokter Button
-          OutlinedButton(
-            onPressed: () {
-              _showInfoSnackbar('Menampilkan seluruh daftar dokter puskesmas...');
-            },
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 48),
-              side: BorderSide(color: Colors.grey.shade200),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text(
-              'Lihat Semua Dokter',
-              style: GoogleFonts.montserrat(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF64748B),
-              ),
-            ),
-          ),
-        ],
-      ),
+          },
+        ),
+    ],
+  ),
     );
   }
 
@@ -414,6 +509,10 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
         return Icons.medical_services_outlined;
       case 'poli kia':
         return Icons.child_care_rounded;
+      case 'poli jantung':
+        return Icons.favorite_outlined;
+      case 'poli mata':
+        return Icons.visibility_outlined;
       case 'lab utama':
         return Icons.science_outlined;
       default:
@@ -434,6 +533,9 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
   Widget _buildCalendarCard(List<Appointment> appointments) {
     final endOfWeek = _startOfWeek.add(const Duration(days: 6));
     final String rangeText = "${_startOfWeek.day} - ${endOfWeek.day} ${_getMonthName(_selectedDate)} ${_selectedDate.year}";
+    final displayedAppointments = _showAllSchedules
+        ? appointments
+        : (appointments.length > 4 ? appointments.sublist(0, 4) : appointments);
 
     return Container(
       decoration: BoxDecoration(
@@ -471,21 +573,6 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
               ),
               Row(
                 children: [
-                  // Toggle Minggu Ini / Bulan
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.all(4),
-                    child: Row(
-                      children: [
-                        _buildViewModeToggle('Minggu Ini', 'Minggu'),
-                        _buildViewModeToggle('Bulan', 'Bulan'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 20),
                   // Navigasi Tanggal (Panah kiri, Tanggal Range, Panah kanan)
                   Row(
                     children: [
@@ -534,6 +621,7 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                     onTap: () {
                       setState(() {
                         _selectedDate = date;
+                        _showAllSchedules = false;
                       });
                     },
                     borderRadius: BorderRadius.circular(8),
@@ -577,7 +665,7 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
           const SizedBox(height: 24),
 
           // Appointments list
-          appointments.isEmpty
+          displayedAppointments.isEmpty
               ? Padding(
                   padding: const EdgeInsets.symmetric(vertical: 60),
                   child: Center(
@@ -596,10 +684,10 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
               : ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: appointments.length,
+                  itemCount: displayedAppointments.length,
                   separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
                   itemBuilder: (context, index) {
-                    final appointment = appointments[index];
+                    final appointment = displayedAppointments[index];
                     return Container(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       child: Row(
@@ -654,7 +742,9 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  appointment.namaPasien,
+                                  appointment.userId.isNotEmpty
+                                      ? (_patientNameCache[appointment.userId] ?? 'Loading...')
+                                      : appointment.namaPasien,
                                   style: GoogleFonts.montserrat(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600,
@@ -665,7 +755,9 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  appointment.nikOrKeluhan,
+                                  appointment.nikOrKeluhan.isNotEmpty
+                                      ? appointment.nikOrKeluhan
+                                      : (appointment.userId.isNotEmpty ? 'UID: ${appointment.userId}' : '-'),
                                   style: GoogleFonts.montserrat(
                                     fontSize: 12,
                                     color: const Color(0xFF64748B),
@@ -725,33 +817,37 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                     );
                   },
                 ),
-          const SizedBox(height: 20),
-          // Footer Link
-          Center(
-            child: InkWell(
-              onTap: () {
-                _showInfoSnackbar('Menampilkan seluruh jadwal dokter & janji temu...');
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Lihat Seluruh Jadwal Hari Ini',
-                      style: GoogleFonts.montserrat(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF0F3A60),
+          if (appointments.length > 4 && !_showAllSchedules) ...[
+            const SizedBox(height: 20),
+            // Footer Link
+            Center(
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _showAllSchedules = true;
+                  });
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Lihat Seluruh Jadwal Hari Ini',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF0F3A60),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.arrow_forward_rounded, color: Color(0xFF0F3A60), size: 16),
-                  ],
+                      const SizedBox(width: 6),
+                      const Icon(Icons.arrow_forward_rounded, color: Color(0xFF0F3A60), size: 16),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -815,6 +911,18 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
           bg = const Color(0xFFE0F2FE);
           text = const Color(0xFF0284C7);
           break;
+        case 'poli jantung':
+          bg = const Color(0xFFFFE4E6);
+          text = const Color(0xFFE11D48);
+          break;
+        case 'poli mata':
+          bg = const Color(0xFFEDE9FE);
+          text = const Color(0xFF7C3AED);
+          break;
+        case 'lab utama':
+          bg = const Color(0xFFFFF3CD);
+          text = const Color(0xFF92400E);
+          break;
         default:
           bg = const Color(0xFFF1F5F9);
           text = const Color(0xFF475569);
@@ -852,12 +960,45 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
     );
   }
 
+  bool _isSameDoctor(String adminName, String doctorName) {
+    String clean(String name) {
+      return name
+          .toLowerCase()
+          .replaceAll(RegExp(r'\b(dr|drg|sp\.[a-z]+|a\.md\.keb|s\.kep|bidan|perawat|admin|utama)\b'), '')
+          .replaceAll(RegExp(r'[^a-z\s]'), '')
+          .trim();
+    }
+    
+    final cleanAdmin = clean(adminName);
+    final cleanDoctor = clean(doctorName);
+    
+    final adminWords = cleanAdmin.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
+    final doctorWords = cleanDoctor.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
+    
+    if (adminWords.isEmpty || doctorWords.isEmpty) return false;
+    
+    for (final dWord in doctorWords) {
+      if (adminWords.contains(dWord)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Appointment action handlers
   void _handleAppointmentAction(Appointment appointment, String action) async {
+    final patientName = appointment.userId.isNotEmpty
+        ? (_patientNameCache[appointment.userId] ?? appointment.namaPasien)
+        : appointment.namaPasien;
+
     if (action == 'selesai') {
+      if (!_isSameDoctor(widget.adminName, appointment.doctorName) && !isSuperAdmin) {
+        _showErrorSnackbar('Hanya dokter yang bersangkutan (${appointment.doctorName}) yang dapat menyelesaikan janji temu ini.');
+        return;
+      }
       try {
-        await _dbRef.child('antrean_janjitemu/${appointment.id}').update({'status': 'selesai'});
-        _showSuccessSnackbar('Janji temu ${appointment.namaPasien} selesai.');
+        await FirebaseFirestore.instance.collection('appointments').doc(appointment.id).update({'status': 'selesai'});
+        _showSuccessSnackbar('Janji temu $patientName selesai.');
       } catch (e) {
         _showErrorSnackbar('Gagal mengubah status: $e');
       }
@@ -870,8 +1011,8 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
     } else if (action == 'hapus') {
       if (isSuperAdmin) {
         try {
-          await _dbRef.child('antrean_janjitemu/${appointment.id}').remove();
-          _showSuccessSnackbar('Janji temu ${appointment.namaPasien} berhasil dihapus.');
+          await FirebaseFirestore.instance.collection('appointments').doc(appointment.id).delete();
+          _showSuccessSnackbar('Janji temu $patientName berhasil dihapus.');
         } catch (e) {
           _showErrorSnackbar('Gagal menghapus janji temu: $e');
         }
@@ -912,16 +1053,6 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
             iconColor: const Color(0xFFEA580C),
             title: 'RATA-RATA TUNGGU',
             value: '18m',
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildSummaryItem(
-            icon: Icons.cancel_outlined,
-            iconBg: const Color(0xFFFEE2E2),
-            iconColor: const Color(0xFFEF4444),
-            title: 'PEMBATALAN',
-            value: batal.toString().padLeft(2, '0'),
           ),
         ),
       ],
@@ -989,7 +1120,18 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
     final timeController = TextEditingController(text: existing?.waktu ?? '09:00');
     final durationController = TextEditingController(text: existing?.estimasiMenit.toString() ?? '15');
     
-    String selectedPoli = existing?.poli ?? 'Poli Umum';
+    // Validasi: pastikan poli yang tersimpan ada di dalam list dropdown
+    const List<String> validPoliList = [
+      'Poli Umum',
+      'Poli Gigi',
+      'Poli Jantung',
+      'Poli KIA',
+      'Poli Mata',
+      'Lab Utama',
+    ];
+    String selectedPoli = (existing != null && validPoliList.contains(existing.poli))
+        ? existing.poli
+        : 'Poli Umum';
     bool isEmergency = existing?.isEmergency ?? false;
 
     showDialog(
@@ -1051,7 +1193,14 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                     DropdownButtonFormField<String>(
                       initialValue: selectedPoli,
                       decoration: const InputDecoration(labelText: 'Poli Tujuan'),
-                      items: ['Poli Umum', 'Poli KIA', 'Poli Gigi', 'IGD / Umum']
+                      items: [
+                        'Poli Umum',
+                        'Poli Gigi',
+                        'Poli Jantung',
+                        'Poli KIA',
+                        'Poli Mata',
+                        'Lab Utama',
+                      ]
                           .map((poli) => DropdownMenuItem(value: poli, child: Text(poli)))
                           .toList(),
                       onChanged: (val) {
@@ -1088,26 +1237,35 @@ class _JadwalDokterPageState extends State<JadwalDokterPage> {
                   onPressed: () async {
                     if (nameController.text.isEmpty) return;
 
+                    final dateVal = existing?.tanggal ?? _selectedDate;
+
+                    // Format date string for mobile app (Indonesian format e.g. "Kamis, 4 Juni 2026")
+                    List<String> days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+                    List<String> months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+                    String formattedDate = '${days[dateVal.weekday - 1]}, ${dateVal.day} ${months[dateVal.month - 1]} ${dateVal.year}';
+
                     final Map<String, dynamic> data = {
-                      'namaPasien': nameController.text,
-                      'nikOrKeluhan': infoController.text,
+                      'namaPasien': nameController.text, // For compatibility
+                      'nikOrKeluhan': infoController.text, // For compatibility
                       'poli': selectedPoli,
-                      'waktu': timeController.text,
+                      'time': timeController.text, // Mobile uses 'time'
+                      'waktu': timeController.text, // Realtime compat
+                      'date': formattedDate, // Mobile uses 'date'
                       'estimasiMenit': int.tryParse(durationController.text) ?? 15,
                       'isEmergency': isEmergency,
-                      'status': existing?.status ?? 'menunggu',
-                      'tanggal': (existing?.tanggal ?? _selectedDate).millisecondsSinceEpoch,
+                      'status': existing?.status ?? 'Menunggu Konfirmasi',
+                      'appointment_date': Timestamp.fromDate(dateVal), // Mobile uses 'appointment_date'
+                      'tanggal': dateVal.millisecondsSinceEpoch, // Realtime compat
+                      'timestamp': Timestamp.now(),
+                      'userId': existing?.userId ?? 'admin_created',
+                      'doctorName': existing?.doctorName ?? 'dr. Bambang S.', // default or existing
                     };
 
                     try {
                       if (existing == null) {
-                        // Generate key
-                        final newKey = _dbRef.child('antrean_janjitemu').push().key;
-                        if (newKey != null) {
-                          await _dbRef.child('antrean_janjitemu/$newKey').set(data);
-                        }
+                        await FirebaseFirestore.instance.collection('appointments').add(data);
                       } else {
-                        await _dbRef.child('antrean_janjitemu/${existing.id}').set(data);
+                        await FirebaseFirestore.instance.collection('appointments').doc(existing.id).set(data, SetOptions(merge: true));
                       }
                       if (context.mounted) Navigator.pop(context);
                       _showSuccessSnackbar(existing == null 

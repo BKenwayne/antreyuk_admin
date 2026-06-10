@@ -8,7 +8,12 @@ import 'package:antreyuk_admin/widgets/current_queue_card.dart';
 import 'package:antreyuk_admin/widgets/stats_card_widget.dart';
 import 'package:antreyuk_admin/widgets/patient_table_widget.dart';
 import 'package:antreyuk_admin/screens/jadwal_dokter_page.dart';
+import 'package:antreyuk_admin/screens/riwayat_kesehatan_page.dart';
+import 'package:antreyuk_admin/widgets/input_riwayat_dialog.dart';
 import 'package:antreyuk_admin/login_page.dart';
+import 'package:antreyuk_admin/utils/queue_helper.dart';
+import 'package:antreyuk_admin/utils/fade_route.dart';
+import 'package:antreyuk_admin/seeder.dart';
 
 class DashboardPage extends StatefulWidget {
   final String adminName;
@@ -32,6 +37,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int _currentPage = 0;
   final int _patientsPerPage = 10;
   List<PatientQueue> _allPatients = [];
+  String _searchQuery = '';
 
   // Firebase Realtime Database reference
   final DatabaseReference _dbRef =
@@ -53,8 +59,18 @@ class _DashboardPageState extends State<DashboardPage> {
                 if (index == 1) {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => JadwalDokterPage(
+                    FadeRoute(
+                      page: JadwalDokterPage(
+                        adminName: widget.adminName,
+                        adminRole: widget.adminRole,
+                      ),
+                    ),
+                  );
+                } else if (index == 2) {
+                  Navigator.push(
+                    context,
+                    FadeRoute(
+                      page: RiwayatKesehatanPage(
                         adminName: widget.adminName,
                         adminRole: widget.adminRole,
                       ),
@@ -74,6 +90,12 @@ class _DashboardPageState extends State<DashboardPage> {
                   TopBarWidget(
                     doctorName: widget.adminName,
                     poliName: widget.adminRole,
+                    onSearchChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                        _currentPage = 0;
+                      });
+                    },
                   ),
                   // Content Area
                   Expanded(
@@ -105,10 +127,21 @@ class _DashboardPageState extends State<DashboardPage> {
                             data.forEach((key, value) {
                               if (value is Map) {
                                 _allPatients.add(
-                                  PatientQueue.fromRealtime(key.toString(), value),
+                                  PatientQueue.fromRealtime(key.toString(), Map<dynamic, dynamic>.from(value)),
                                 );
                               }
                             });
+                          } else if (data is List) {
+                            for (int i = 0; i < data.length; i++) {
+                              final value = data[i];
+                              if (value is Map) {
+                                _allPatients.add(
+                                  PatientQueue.fromRealtime(i.toString(), Map<dynamic, dynamic>.from(value)),
+                                );
+                              }
+                            }
+                          }
+                          if (_allPatients.isNotEmpty) {
                             // Sort by waktuDaftar ascending
                             _allPatients.sort((a, b) => a.waktuDaftar.compareTo(b.waktuDaftar));
                           }
@@ -155,6 +188,16 @@ class _DashboardPageState extends State<DashboardPage> {
         filteredPatients = _allPatients;
     }
 
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filteredPatients = filteredPatients.where((p) {
+        return p.namaPasien.toLowerCase().contains(query) ||
+            p.noRekamMedis.toLowerCase().contains(query) ||
+            p.nomorAntrean.toLowerCase().contains(query) ||
+            p.id.toLowerCase().contains(query);
+      }).toList();
+    }
+
     final totalFiltered = filteredPatients.length;
     final startIndex = _currentPage * _patientsPerPage;
     final endIndex =
@@ -189,25 +232,56 @@ class _DashboardPageState extends State<DashboardPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title Row
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Pusat Kontrol Antrean',
-                style: GoogleFonts.montserrat(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF1E293B),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Poli Umum — $dateStr',
-                style: GoogleFonts.montserrat(
-                  fontSize: 14,
-                  color: Colors.grey.shade500,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pusat Kontrol Antrean',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Poli Umum — $dateStr',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Tombol Sinkronisasi Data (Super Admin Only)
+                  if (isSuperAdmin)
+                    ElevatedButton.icon(
+                      onPressed: _runSeeder,
+                      icon: const Icon(Icons.sync_rounded, size: 16, color: Colors.white),
+                      label: Text(
+                        'Sinkronisasi Data',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0F3A60),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        elevation: 0,
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -292,10 +366,12 @@ class _DashboardPageState extends State<DashboardPage> {
       if (snapshot.exists) {
         final val = snapshot.value;
         final updates = <String, dynamic>{};
+        final finishedKeys = <String>[];
         if (val is Map) {
           val.forEach((key, value) {
             if (value is Map && value['status'] == 'dipanggil') {
               updates['$key/status'] = 'selesai';
+              finishedKeys.add(key.toString());
             }
           });
         } else if (val is List) {
@@ -303,11 +379,15 @@ class _DashboardPageState extends State<DashboardPage> {
             final value = val[i];
             if (value is Map && value['status'] == 'dipanggil') {
               updates['$i/status'] = 'selesai';
+              finishedKeys.add(i.toString());
             }
           }
         }
         if (updates.isNotEmpty) {
           await _dbRef.update(updates);
+          for (final key in finishedKeys) {
+            await clearUserActiveQueue(key);
+          }
         }
       }
 
@@ -333,7 +413,11 @@ class _DashboardPageState extends State<DashboardPage> {
         }
 
         if (nextKey != null) {
-          await _dbRef.child(nextKey).update({'status': 'dipanggil'});
+          await _dbRef.child(nextKey).update({
+            'status': 'dipanggil',
+            'callTimestamp': ServerValue.timestamp,
+          });
+          await updateUserActiveQueueStatus(nextKey, 'dipanggil');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -387,26 +471,79 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _recallPatient(PatientQueue? patient) async {
     if (patient == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Memanggil ulang ${patient.namaPasien} (${patient.nomorAntrean})...',
-            style: GoogleFonts.montserrat(),
+    try {
+      await _dbRef.child(patient.id).update({
+        'status': 'dipanggil',
+        'recallTimestamp': ServerValue.timestamp,
+      });
+      await updateUserActiveQueueStatus(patient.id, 'dipanggil');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Memanggil ulang ${patient.namaPasien} (${patient.nomorAntrean})...',
+              style: GoogleFonts.montserrat(),
+            ),
+            backgroundColor: const Color(0xFF2563EB),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-          backgroundColor: const Color(0xFF2563EB),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memanggil ulang: $e', style: GoogleFonts.montserrat()),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-        ),
-      );
+        );
+      }
     }
   }
 
   Future<void> _updatePatientStatus(
       PatientQueue patient, String newStatus) async {
     try {
+      if (newStatus == 'selesai') {
+        final success = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => InputRiwayatDialog(
+            patient: patient,
+            doctorName: widget.adminName,
+          ),
+        );
+
+        if (success != true) {
+          // If the user cancelled or closed the dialog without saving, do not change status.
+          return;
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Status ${patient.namaPasien} diubah ke "selesai" dan riwayat pemeriksaan berhasil disimpan.',
+                style: GoogleFonts.montserrat(),
+              ),
+              backgroundColor: const Color(0xFF16A34A),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
       await _dbRef.child(patient.id).update({'status': newStatus});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -438,8 +575,97 @@ class _DashboardPageState extends State<DashboardPage> {
   void _logout() {
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
+      FadeRoute(page: const LoginPage()),
       (route) => false,
     );
+  }
+
+  /// Sinkronisasi data: seed ulang admin, poliklinik, dan dokter ke Firebase
+  Future<void> _runSeeder() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Sinkronisasi Data Firebase',
+          style: GoogleFonts.montserrat(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Ini akan memperbarui data admin, poliklinik (5 poli tanpa Poli Anak), dan dokter di Realtime Database sesuai konfigurasi terbaru.\n\nLanjutkan?',
+          style: GoogleFonts.montserrat(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Batal', style: GoogleFonts.montserrat(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F3A60),
+            ),
+            child: Text('Sinkronkan', style: GoogleFonts.montserrat(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 20),
+            Text(
+              'Menyinkronkan data...\nMohon tunggu.',
+              style: GoogleFonts.montserrat(fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      await DatabaseSeeder.seedAdminData();
+      await DatabaseSeeder.seedPoliklinikData();
+      await DatabaseSeeder.seedDoctorData();
+
+      if (mounted) {
+        Navigator.pop(context); // Tutup loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Sinkronisasi berhasil! Data admin, 5 poliklinik, dan dokter telah diperbarui.',
+              style: GoogleFonts.montserrat(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFF16A34A),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Tutup loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Gagal sinkronisasi: $e',
+              style: GoogleFonts.montserrat(color: Colors.white),
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    }
   }
 }
